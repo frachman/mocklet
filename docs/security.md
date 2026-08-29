@@ -4,3 +4,4 @@ Mock definitions and request traffic are untrusted. Management tokens are return
 
 The initial service does not execute user code, proxy requests, render response bodies as trusted HTML, or support permanent resources. Rate limiting and asynchronous cleanup remain known hardening work.
 
+The initial browser API surface allows credential-free CORS (`Access-Control-Allow-Origin: *`); management authorization remains an explicit token header and is not cookie-based.

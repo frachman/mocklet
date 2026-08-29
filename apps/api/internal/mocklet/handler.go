@@ -23,7 +23,20 @@ func NewHandler(repo *Repository) http.Handler {
 	mux.HandleFunc("/api/v1/mocks", h.create)
 	mux.HandleFunc("/api/v1/mocks/", h.manage)
 	mux.HandleFunc("/m/", h.runtime)
-	return mux
+	return cors(mux)
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, X-Management-Token, Authorization")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, OPTIONS")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {

@@ -1,6 +1,10 @@
 package mocklet
 
-import "testing"
+import (
+	"net/http"
+	"net/http/httptest"
+	"testing"
+)
 
 func TestValidateEndpoint(t *testing.T) {
 	valid := &createRequest{Method: "get", Path: "/users/{id}", StatusCode: 200}
@@ -17,5 +21,13 @@ func TestValidateEndpoint(t *testing.T) {
 func TestTokenHashIsStable(t *testing.T) {
 	if hashToken("abc") != hashToken("abc") || hashToken("abc") == hashToken("def") {
 		t.Fatal("token hashing is not stable/unique")
+	}
+}
+
+func TestCORSPreflight(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	cors(http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("next handler should not run") })).ServeHTTP(recorder, httptest.NewRequest(http.MethodOptions, "/api/v1/mocks", nil))
+	if recorder.Code != http.StatusNoContent || recorder.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("unexpected preflight response: %d %v", recorder.Code, recorder.Header())
 	}
 }
