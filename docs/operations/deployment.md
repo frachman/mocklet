@@ -18,4 +18,4 @@ Minimum release gate:
 
 The current rate limiter is process-local and the current cleanup loop runs every 15 minutes. A multi-instance deployment therefore requires an explicit operational decision before scaling horizontally. No production host, domain, or credentials are encoded here.
 
-Current readiness: suitable for controlled testing; container build/rehearsal and visual QA pass. Not yet approved for public production exposure until backup/rollback rehearsal and target-specific ingress checks pass.
+Current readiness: suitable for controlled testing; container build/rehearsal, M2 HTTP coverage, dependency audit, and visual QA pass. Not yet approved for public production exposure until backup/rollback rehearsal and target-specific ingress checks pass.
