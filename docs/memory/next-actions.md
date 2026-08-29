@@ -1,5 +1,6 @@
 # Next actions
 
-1. Choose and document the authorized production target, backup/rollback procedure, and proxy limits.
-2. Select the off-host encrypted backup destination and rehearse rollback for that target.
-3. Run target-specific preflight and obtain explicit approval before production exposure.
+1. Create `mocklet.mikrolyt.com` DNS for the production VPS.
+2. Confirm the SFTP transport used by Hookbin can receive a separate `mocklet-*.dump.gpg` namespace; direct VPS access to homelab `192.168.1.5:22` is currently unreachable.
+3. Rehearse encrypted backup and isolated restore for the Mocklet database.
+4. Run target-specific preflight and obtain explicit approval before Caddy/Compose production changes.
