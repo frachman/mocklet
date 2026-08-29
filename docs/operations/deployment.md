@@ -7,6 +7,7 @@ Required configuration:
 - `DATABASE_URL`
 - `API_PORT`
 - `NEXT_PUBLIC_API_ORIGIN` set at web build time
+- `MOCKLET_BIND_ADDRESS` and port variables should bind staging/production services to loopback behind a reverse proxy.
 
 Minimum release gate:
 

@@ -6,7 +6,7 @@ services:
       POSTGRES_USER: mocklet
       POSTGRES_PASSWORD: mocklet_dev
     ports:
-      - "${MOCKLET_DB_PORT:-5432}:5432"
+      - "${MOCKLET_BIND_ADDRESS:-127.0.0.1}:${MOCKLET_DB_PORT:-5432}:5432"
     volumes:
       - mocklet-postgres:/var/lib/postgresql/data
     healthcheck:
@@ -25,7 +25,7 @@ services:
       postgres:
         condition: service_healthy
     ports:
-      - "${MOCKLET_API_PORT:-8080}:8080"
+      - "${MOCKLET_BIND_ADDRESS:-127.0.0.1}:${MOCKLET_API_PORT:-8080}:8080"
   web:
     build:
       context: .
@@ -37,6 +37,6 @@ services:
     depends_on:
       - api
     ports:
-      - "${MOCKLET_WEB_PORT:-3000}:3000"
+      - "${MOCKLET_BIND_ADDRESS:-127.0.0.1}:${MOCKLET_WEB_PORT:-3000}:3000"
 volumes:
   mocklet-postgres:

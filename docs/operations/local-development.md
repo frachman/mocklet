@@ -15,7 +15,7 @@ docker compose up -d --build
 docker compose exec -T postgres psql -U mocklet -d mocklet < db/migrations/001_init.sql
 ```
 
-If the default ports are occupied, use an isolated mapping, for example `MOCKLET_DB_PORT=55432 MOCKLET_API_PORT=18080 MOCKLET_WEB_PORT=13000 NEXT_PUBLIC_API_ORIGIN=http://localhost:18080 docker compose up -d --build`.
+If the default ports are occupied, use an isolated loopback mapping, for example `MOCKLET_BIND_ADDRESS=127.0.0.1 MOCKLET_DB_PORT=55432 MOCKLET_API_PORT=18080 MOCKLET_WEB_PORT=13000 NEXT_PUBLIC_API_ORIGIN=http://localhost:18080 docker compose up -d --build`.
 
 In another terminal:
 
