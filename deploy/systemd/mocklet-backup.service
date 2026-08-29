@@ -1,0 +1,14 @@
+[Unit]
+Description=Encrypted Mocklet PostgreSQL backup
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mocklet-backup.sh
+User=root
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadWritePaths=/var/lib/mocklet-backup /etc/mocklet /etc/hookbin/backup/gnupg
+NoNewPrivileges=true

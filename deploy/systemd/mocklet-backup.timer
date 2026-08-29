@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily encrypted Mocklet PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 03:45:00
+RandomizedDelaySec=15m
+Persistent=true
+Unit=mocklet-backup.service
+
+[Install]
+WantedBy=timers.target

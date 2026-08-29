@@ -1,0 +1,12 @@
+[Unit]
+Description=Check freshness of encrypted Mocklet backup
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/mocklet-backup-check.sh
+User=root
+PrivateTmp=true
+ProtectHome=true
+ProtectSystem=strict
+ReadOnlyPaths=/var/lib/mocklet-backup /etc/mocklet
+NoNewPrivileges=true

@@ -1,6 +1,5 @@
 # Next actions
 
-1. Create `mocklet.mikrolyt.com` DNS for the production VPS.
-2. Confirm the SFTP transport used by Hookbin can receive a separate `mocklet-*.dump.gpg` namespace; direct VPS access to homelab `192.168.1.5:22` is currently unreachable.
-3. Rehearse encrypted backup and isolated restore for the Mocklet database.
-4. Run target-specific preflight and obtain explicit approval before Caddy/Compose production changes.
+1. Run an isolated decrypt/restore rehearsal from the homelab using the private restore key and record the result.
+2. Keep the daily Mocklet backup and freshness-check timers monitored alongside Hookbin.
+3. Revisit the process-local rate limiter before horizontal scaling or multi-instance deployment.
