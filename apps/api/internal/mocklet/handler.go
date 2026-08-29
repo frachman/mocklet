@@ -28,6 +28,7 @@ func NewHandler(repo *Repository) http.Handler {
 	h := &Handler{repo: repo, limiter: newRateLimiter(120, time.Minute)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", h.health)
+	mux.HandleFunc("/readyz", h.ready)
 	mux.HandleFunc("/api/v1/mocks", h.create)
 	mux.HandleFunc("/api/v1/mocks/", h.manage)
 	mux.HandleFunc("/m/", h.runtime)
@@ -50,6 +51,11 @@ func cors(next http.Handler) http.Handler {
 func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.Write([]byte(`{"status":"ok"}`))
+}
+
+func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
+	if err := h.repo.Ready(r.Context()); err != nil { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
+	writeJSON(w, http.StatusOK, map[string]string{"status":"ready"})
 }
 
 type createRequest struct {

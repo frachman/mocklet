@@ -1,5 +1,5 @@
 # Next actions
 
-1. Add M2 multi-endpoint CRUD, conflict validation, headers, and quota enforcement.
-2. Add asynchronous cleanup and request-rate enforcement before public deployment.
-3. Reconcile public deployment details only when a deployment target is authorized.
+1. Run a clean-container integration rehearsal with the committed Dockerfiles and migration.
+2. Choose and document the authorized production target, backup/rollback procedure, and proxy limits.
+3. Decide whether process-local rate limiting is sufficient for the first deployment or requires a shared limiter.

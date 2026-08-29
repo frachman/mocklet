@@ -5,4 +5,8 @@ node_modules
 dist
 coverage
 *.log
-
+.m2
+.go
+*.tmp
+apps/web/.next
+apps/web/node_modules

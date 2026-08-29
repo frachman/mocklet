@@ -44,6 +44,7 @@ func NewPostgresRepository(ctx context.Context, url string) (*Repository, error)
 	return &Repository{db: db}, nil
 }
 func (r *Repository) Close() error { return r.db.Close() }
+func (r *Repository) Ready(ctx context.Context) error { return r.db.PingContext(ctx) }
 
 func (r *Repository) Create(ctx context.Context, name, tokenHash string, expiresAt time.Time, e Endpoint) (Mock, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
