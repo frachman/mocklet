@@ -6,7 +6,7 @@ Mocklet is an anonymous-first, disposable mock API service. The first vertical s
 
 ## Status
 
-M0/M1 implementation is in progress. The current API supports one endpoint per mock. Multi-endpoint management, scenarios, and OpenAPI import are later milestones.
+M0/M1 implementation is complete. The current API supports one endpoint per mock. Multi-endpoint management, scenarios, and OpenAPI import are later milestones.
 
 ## Local API
 
@@ -34,4 +34,3 @@ Call `http://localhost:8080/m/{public_key}/users`. Keep `management_token` priva
 - Delay is bounded to 10 seconds.
 - No user-provided code, scripting, proxying, accounts, billing, AI, or OpenAPI import exists yet.
 - Every public repository file must be safe to disclose.
-

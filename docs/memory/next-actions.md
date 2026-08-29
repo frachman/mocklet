@@ -1,7 +1,5 @@
 # Next actions
 
-1. Add the minimal Next.js management UI and API proxy configuration.
-2. Run PostgreSQL migration and an HTTP create/serve/manage smoke test.
-3. Add M2 multi-endpoint CRUD, conflict validation, headers, and quota enforcement.
-4. Reconcile docs, run secret scan if available, and commit the milestone.
-
+1. Add M2 multi-endpoint CRUD, conflict validation, headers, and quota enforcement.
+2. Add asynchronous cleanup and request-rate enforcement before public deployment.
+3. Reconcile public deployment details only when a deployment target is authorized.

@@ -1,6 +1,6 @@
 # Current state
 
-- Milestone: M1 implementation.
+- Milestone: M1 complete; M2 next.
 - Repository: empty workspace bootstrapped locally; remote verification/push pending authorization and connectivity.
 - Working: Go repository/API source, SQL schema, public-repo safety files, documentation harness, token hashing and endpoint validation tests.
 - Verified: PostgreSQL migration, create → public runtime → private management smoke test (201/200/401), Go tests, and Next.js production build.
