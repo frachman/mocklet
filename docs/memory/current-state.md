@@ -6,5 +6,6 @@
 - Verified: PostgreSQL migration, create → public runtime → private management smoke test (201/200/401), Go tests, and Next.js production build.
 - Browser integration: credential-free CORS and preflight handling are enabled for the separate local web origin.
 - M2: multi-endpoint CRUD, five-route cap, collision handling, response headers, bounded delay, expiry cleanup, rate limiting, containers, CI, and readiness endpoint are implemented.
+- Verified: API and web Docker images build successfully after tightening the Docker context; M2 HTTP smoke covered two routes, configured status/body/header, collision 409, and authenticated listing.
 - Known limitation: process-local rate limiting is not suitable for horizontal scaling without a shared limiter; production target, backup rehearsal, proxy limits, and visual browser QA remain unverified.
 - Environment note: sibling `../mikrolyt-ecosystem` exists but is empty and outside this session's writable root, so it was not initialized or modified.
