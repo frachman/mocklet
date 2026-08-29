@@ -20,3 +20,5 @@ Minimum release gate:
 The current rate limiter is process-local and the current cleanup loop runs every 15 minutes. A multi-instance deployment therefore requires an explicit operational decision before scaling horizontally. No production host, domain, or credentials are encoded here.
 
 Current readiness: suitable for controlled testing; container build/rehearsal, M2 HTTP coverage, dependency audit, and visual QA pass. Not yet approved for public production exposure until backup/rollback rehearsal and target-specific ingress checks pass.
+
+Homelab staging is verified on `192.168.1.5` with a separate Compose project and loopback-only ports. The staging backup/restore rehearsal passed using synthetic data. Production backup must still use the approved encrypted off-host destination and remain outside Git/chat.
