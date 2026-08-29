@@ -25,9 +25,10 @@ export default function Home() {
 
   async function addEndpoint(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (!result) return; setError(''); setMessage('');
-    const response = await fetch(`${apiOrigin}/api/v1/mocks/${result.key}/endpoints`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Management-Token': result.token }, body: JSON.stringify(endpointPayload(new FormData(event.currentTarget))) });
+    const form = event.currentTarget;
+    const response = await fetch(`${apiOrigin}/api/v1/mocks/${result.key}/endpoints`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Management-Token': result.token }, body: JSON.stringify(endpointPayload(new FormData(form))) });
     if (!response.ok) { setError(await response.text()); return; }
-    const value = await response.json(); setMessage(`Added ${value.method} ${value.path}`); event.currentTarget.reset();
+    const value = await response.json(); setMessage(`Added ${value.method} ${value.path}`); form.reset();
   }
 
   return <main>
@@ -54,4 +55,3 @@ export default function Home() {
     </section>}
   </main>;
 }
-
