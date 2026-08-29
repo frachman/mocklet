@@ -6,20 +6,26 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"net"
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 )
 
 var pathPattern = regexp.MustCompile(`^/[A-Za-z0-9._~!$&'()*+,;=:@%{}\-/]+$`)
 var methods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
+
 const maxEndpoints = 5
 
-type Handler struct{ repo *Repository }
+type Handler struct {
+	repo    *Repository
+	limiter *rateLimiter
+}
 
 func NewHandler(repo *Repository) http.Handler {
-	h := &Handler{repo}
+	h := &Handler{repo: repo, limiter: newRateLimiter(120, time.Minute)}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/healthz", h.health)
 	mux.HandleFunc("/api/v1/mocks", h.create)
@@ -100,9 +106,18 @@ func (h *Handler) manage(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unauthorized", 401)
 		return
 	}
-	if len(parts) == 5 && parts[4] == "endpoints" { h.endpointCollection(w, r, key); return }
-	if len(parts) == 6 && parts[4] == "endpoints" { h.endpointItem(w, r, key, parts[5]); return }
-	if len(parts) != 4 { http.NotFound(w, r); return }
+	if len(parts) == 5 && parts[4] == "endpoints" {
+		h.endpointCollection(w, r, key)
+		return
+	}
+	if len(parts) == 6 && parts[4] == "endpoints" {
+		h.endpointItem(w, r, key, parts[5])
+		return
+	}
+	if len(parts) != 4 {
+		http.NotFound(w, r)
+		return
+	}
 	m, err := h.repo.FindByPublicKey(r.Context(), key)
 	if err != nil {
 		http.Error(w, "not found", 404)
@@ -112,28 +127,79 @@ func (h *Handler) manage(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) endpointCollection(w http.ResponseWriter, r *http.Request, key string) {
-	m, err := h.repo.FindByPublicKey(r.Context(), key); if err != nil { http.Error(w,"not found",404); return }
+	m, err := h.repo.FindByPublicKey(r.Context(), key)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
 	switch r.Method {
-	case http.MethodGet: writeJSON(w,200,m.Endpoints)
+	case http.MethodGet:
+		writeJSON(w, 200, m.Endpoints)
 	case http.MethodPost:
-		if len(m.Endpoints) >= maxEndpoints { http.Error(w,"anonymous mock route limit reached", 409); return }
-		var in createRequest; if json.NewDecoder(http.MaxBytesReader(w,r.Body,64<<10)).Decode(&in) != nil { http.Error(w,"invalid JSON",400); return }
-		if err := validateEndpoint(&in); err != nil { http.Error(w,err.Error(),400); return }
-		e, err := h.repo.AddEndpoint(r.Context(),m.ID,endpointFromRequest(in)); if err != nil { writeRepositoryError(w,err); return }; writeJSON(w,201,e)
-	default: http.Error(w,"method not allowed",405)
+		if len(m.Endpoints) >= maxEndpoints {
+			http.Error(w, "anonymous mock route limit reached", 409)
+			return
+		}
+		var in createRequest
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil {
+			http.Error(w, "invalid JSON", 400)
+			return
+		}
+		if err := validateEndpoint(&in); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		e, err := h.repo.AddEndpoint(r.Context(), m.ID, endpointFromRequest(in))
+		if err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		writeJSON(w, 201, e)
+	default:
+		http.Error(w, "method not allowed", 405)
 	}
 }
 
 func (h *Handler) endpointItem(w http.ResponseWriter, r *http.Request, key, endpointID string) {
-	m, err := h.repo.FindByPublicKey(r.Context(), key); if err != nil { http.Error(w,"not found",404); return }
-	if r.Method == http.MethodDelete { if err:=h.repo.DeleteEndpoint(r.Context(),m.ID,endpointID); err!=nil { writeRepositoryError(w,err); return }; w.WriteHeader(http.StatusNoContent); return }
-	if r.Method != http.MethodPut { http.Error(w,"method not allowed",405); return }
-	var in createRequest; if json.NewDecoder(http.MaxBytesReader(w,r.Body,64<<10)).Decode(&in) != nil { http.Error(w,"invalid JSON",400); return }
-	if err:=validateEndpoint(&in); err!=nil { http.Error(w,err.Error(),400); return }
-	e, err := h.repo.UpdateEndpoint(r.Context(),m.ID,endpointID,endpointFromRequest(in)); if err!=nil { writeRepositoryError(w,err); return }; writeJSON(w,200,e)
+	m, err := h.repo.FindByPublicKey(r.Context(), key)
+	if err != nil {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if r.Method == http.MethodDelete {
+		if err := h.repo.DeleteEndpoint(r.Context(), m.ID, endpointID); err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var in createRequest
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil {
+		http.Error(w, "invalid JSON", 400)
+		return
+	}
+	if err := validateEndpoint(&in); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	e, err := h.repo.UpdateEndpoint(r.Context(), m.ID, endpointID, endpointFromRequest(in))
+	if err != nil {
+		writeRepositoryError(w, err)
+		return
+	}
+	writeJSON(w, 200, e)
 }
 
 func (h *Handler) runtime(w http.ResponseWriter, r *http.Request) {
+	if !h.limiter.Allow(clientIP(r)) {
+		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
+		return
+	}
 	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/m/"), "/", 2)
 	if len(parts) != 2 {
 		http.NotFound(w, r)
@@ -145,7 +211,12 @@ func (h *Handler) runtime(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var endpoint *Endpoint
-	for i := range m.Endpoints { if m.Endpoints[i].Method == r.Method && m.Endpoints[i].Path == "/"+parts[1] { endpoint = &m.Endpoints[i]; break } }
+	for i := range m.Endpoints {
+		if m.Endpoints[i].Method == r.Method && m.Endpoints[i].Path == "/"+parts[1] {
+			endpoint = &m.Endpoints[i]
+			break
+		}
+	}
 	if endpoint == nil {
 		http.NotFound(w, r)
 		return
@@ -161,6 +232,41 @@ func (h *Handler) runtime(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(endpoint.StatusCode)
 	w.Write([]byte(endpoint.Body))
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err == nil {
+		return host
+	}
+	return r.RemoteAddr
+}
+
+type rateLimiter struct {
+	mu      sync.Mutex
+	limit   int
+	window  time.Duration
+	clients map[string]rateWindow
+}
+type rateWindow struct {
+	started time.Time
+	count   int
+}
+
+func newRateLimiter(limit int, window time.Duration) *rateLimiter {
+	return &rateLimiter{limit: limit, window: window, clients: make(map[string]rateWindow)}
+}
+func (l *rateLimiter) Allow(client string) bool {
+	now := time.Now()
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	entry := l.clients[client]
+	if now.Sub(entry.started) >= l.window {
+		entry = rateWindow{started: now}
+	}
+	entry.count++
+	l.clients[client] = entry
+	return entry.count <= l.limit
 }
 
 func validateEndpoint(in *createRequest) error {
@@ -186,13 +292,35 @@ func validateEndpoint(in *createRequest) error {
 	if len(in.Body) > 1<<20 {
 		return &clientError{"body is limited to 1 MiB"}
 	}
-	for name, value := range in.Headers { if !validHeader(name,value) { return &clientError{"headers contain an unsafe name or value"} } }
+	for name, value := range in.Headers {
+		if !validHeader(name, value) {
+			return &clientError{"headers contain an unsafe name or value"}
+		}
+	}
 	return nil
 }
 
-func endpointFromRequest(in createRequest) Endpoint { return Endpoint{Method:in.Method,Path:in.Path,StatusCode:in.StatusCode,Body:in.Body,ContentType:in.ContentType,DelayMS:in.DelayMS,Headers:in.Headers} }
-func validHeader(name,value string) bool { if strings.TrimSpace(name)=="" || strings.ContainsAny(name,"\r\n") || strings.ContainsAny(value,"\r\n") { return false }; lower:=strings.ToLower(name); return lower!="set-cookie" && lower!="content-length" && lower!="transfer-encoding" && lower!="connection" }
-func writeRepositoryError(w http.ResponseWriter, err error) { if errors.Is(err,ErrNotFound) { http.Error(w,"not found",404); return }; if strings.Contains(err.Error(),"duplicate key") { http.Error(w,"method and path already exist",409); return }; http.Error(w,"could not persist endpoint",500) }
+func endpointFromRequest(in createRequest) Endpoint {
+	return Endpoint{Method: in.Method, Path: in.Path, StatusCode: in.StatusCode, Body: in.Body, ContentType: in.ContentType, DelayMS: in.DelayMS, Headers: in.Headers}
+}
+func validHeader(name, value string) bool {
+	if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "\r\n") || strings.ContainsAny(value, "\r\n") {
+		return false
+	}
+	lower := strings.ToLower(name)
+	return lower != "set-cookie" && lower != "content-length" && lower != "transfer-encoding" && lower != "connection"
+}
+func writeRepositoryError(w http.ResponseWriter, err error) {
+	if errors.Is(err, ErrNotFound) {
+		http.Error(w, "not found", 404)
+		return
+	}
+	if strings.Contains(err.Error(), "duplicate key") {
+		http.Error(w, "method and path already exist", 409)
+		return
+	}
+	http.Error(w, "could not persist endpoint", 500)
+}
 
 type clientError struct{ message string }
 

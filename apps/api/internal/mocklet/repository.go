@@ -13,11 +13,11 @@ import (
 var ErrNotFound = errors.New("mock not found")
 
 type Mock struct {
-	ID         string     `json:"id,omitempty"`
-	PublicKey  string     `json:"public_key"`
-	Name       string     `json:"name"`
-	ExpiresAt  time.Time  `json:"expires_at"`
-	Endpoints  []Endpoint `json:"endpoints"`
+	ID        string     `json:"id,omitempty"`
+	PublicKey string     `json:"public_key"`
+	Name      string     `json:"name"`
+	ExpiresAt time.Time  `json:"expires_at"`
+	Endpoints []Endpoint `json:"endpoints"`
 }
 type Endpoint struct {
 	ID          string            `json:"id,omitempty"`
@@ -80,36 +80,52 @@ func (r *Repository) FindByPublicKey(ctx context.Context, key string) (Mock, err
 		return Mock{}, err
 	}
 	rows, err := r.db.QueryContext(ctx, `SELECT id,method,path,status_code,headers,body,content_type,delay_ms FROM mock_endpoints WHERE mock_api_id=$1 ORDER BY created_at`, m.ID)
-	if err != nil { return Mock{}, err }
+	if err != nil {
+		return Mock{}, err
+	}
 	defer rows.Close()
 	for rows.Next() {
-		var e Endpoint; var headers []byte
-		if err := rows.Scan(&e.ID,&e.Method,&e.Path,&e.StatusCode,&headers,&e.Body,&e.ContentType,&e.DelayMS); err != nil { return Mock{}, err }
+		var e Endpoint
+		var headers []byte
+		if err := rows.Scan(&e.ID, &e.Method, &e.Path, &e.StatusCode, &headers, &e.Body, &e.ContentType, &e.DelayMS); err != nil {
+			return Mock{}, err
+		}
 		_ = json.Unmarshal(headers, &e.Headers)
 		m.Endpoints = append(m.Endpoints, e)
 	}
-	if err := rows.Err(); err != nil { return Mock{}, err }
+	if err := rows.Err(); err != nil {
+		return Mock{}, err
+	}
 	return m, nil
 }
 
 func (r *Repository) AddEndpoint(ctx context.Context, mockID string, e Endpoint) (Endpoint, error) {
 	headers, _ := json.Marshal(e.Headers)
-	err := r.db.QueryRowContext(ctx, `INSERT INTO mock_endpoints (mock_api_id,method,path,status_code,headers,body,content_type,delay_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, mockID,e.Method,e.Path,e.StatusCode,headers,e.Body,e.ContentType,e.DelayMS).Scan(&e.ID)
+	err := r.db.QueryRowContext(ctx, `INSERT INTO mock_endpoints (mock_api_id,method,path,status_code,headers,body,content_type,delay_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, mockID, e.Method, e.Path, e.StatusCode, headers, e.Body, e.ContentType, e.DelayMS).Scan(&e.ID)
 	return e, err
 }
 
 func (r *Repository) UpdateEndpoint(ctx context.Context, mockID, endpointID string, e Endpoint) (Endpoint, error) {
 	headers, _ := json.Marshal(e.Headers)
-	err := r.db.QueryRowContext(ctx, `UPDATE mock_endpoints SET method=$1,path=$2,status_code=$3,headers=$4,body=$5,content_type=$6,delay_ms=$7,updated_at=now() WHERE id=$8 AND mock_api_id=$9 RETURNING id`, e.Method,e.Path,e.StatusCode,headers,e.Body,e.ContentType,e.DelayMS,endpointID,mockID).Scan(&e.ID)
-	if errors.Is(err, sql.ErrNoRows) { return Endpoint{}, ErrNotFound }
+	err := r.db.QueryRowContext(ctx, `UPDATE mock_endpoints SET method=$1,path=$2,status_code=$3,headers=$4,body=$5,content_type=$6,delay_ms=$7,updated_at=now() WHERE id=$8 AND mock_api_id=$9 RETURNING id`, e.Method, e.Path, e.StatusCode, headers, e.Body, e.ContentType, e.DelayMS, endpointID, mockID).Scan(&e.ID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return Endpoint{}, ErrNotFound
+	}
 	return e, err
 }
 
 func (r *Repository) DeleteEndpoint(ctx context.Context, mockID, endpointID string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM mock_endpoints WHERE id=$1 AND mock_api_id=$2`, endpointID,mockID)
-	if err != nil { return err }
-	count, err := result.RowsAffected(); if err != nil { return err }
-	if count == 0 { return ErrNotFound }
+	result, err := r.db.ExecContext(ctx, `DELETE FROM mock_endpoints WHERE id=$1 AND mock_api_id=$2`, endpointID, mockID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
 	return nil
 }
 
@@ -117,6 +133,11 @@ func (r *Repository) CountEndpoints(ctx context.Context, mockID string) (int, er
 	var count int
 	err := r.db.QueryRowContext(ctx, `SELECT count(*) FROM mock_endpoints WHERE mock_api_id=$1`, mockID).Scan(&count)
 	return count, err
+}
+
+func (r *Repository) DeleteExpired(ctx context.Context) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM mock_apis WHERE expires_at <= now()`)
+	return err
 }
 
 func (r *Repository) Authenticate(ctx context.Context, key, tokenHash string) (bool, error) {

@@ -21,6 +21,15 @@ func main() {
 		log.Fatalf("connect database: %v", err)
 	}
 	defer repo.Close()
+	go func() {
+		ticker := time.NewTicker(15 * time.Minute)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := repo.DeleteExpired(context.Background()); err != nil {
+				log.Printf("expired mock cleanup failed: %v", err)
+			}
+		}
+	}()
 
 	server := &http.Server{Addr: ":" + port, Handler: mocklet.NewHandler(repo), ReadHeaderTimeout: 5 * time.Second}
 	log.Printf("mocklet api listening on :%s", port)
