@@ -71,6 +71,7 @@ func (h *Handler) pageView(w http.ResponseWriter, r *http.Request) {
 		Source string `json:"source"`
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10))
+	decoder.DisallowUnknownFields()
 	if decoder.Decode(&in) != nil || in.Source != "landing" {
 		http.Error(w, "invalid telemetry", http.StatusBadRequest)
 		return
@@ -127,7 +128,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 func (h *Handler) manage(w http.ResponseWriter, r *http.Request) {
 	_ = h.repo.IncrementUsage(r.Context(), "management_requests")
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
-	if len(parts) < 4 || len(parts) > 6 || parts[0] != "api" || parts[1] != "v1" || parts[2] != "mocks" {
+	if len(parts) < 4 || len(parts) > 8 || parts[0] != "api" || parts[1] != "v1" || parts[2] != "mocks" {
 		http.NotFound(w, r)
 		return
 	}
@@ -145,6 +146,14 @@ func (h *Handler) manage(w http.ResponseWriter, r *http.Request) {
 		h.endpointItem(w, r, key, parts[5])
 		return
 	}
+	if len(parts) == 7 && parts[4] == "endpoints" && parts[6] == "scenarios" {
+		h.scenarioCollection(w, r, key, parts[5])
+		return
+	}
+	if len(parts) == 8 && parts[4] == "endpoints" && parts[6] == "scenarios" {
+		h.scenarioItem(w, r, key, parts[5], parts[7])
+		return
+	}
 	if len(parts) != 4 {
 		http.NotFound(w, r)
 		return
@@ -155,6 +164,76 @@ func (h *Handler) manage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, 200, m)
+}
+
+type scenarioRequest struct {
+	Name        string            `json:"name"`
+	IsDefault   bool              `json:"is_default"`
+	StatusCode  int               `json:"status_code"`
+	Body        string            `json:"body"`
+	ContentType string            `json:"content_type"`
+	DelayMS     int               `json:"delay_ms"`
+	Headers     map[string]string `json:"headers"`
+}
+
+func (h *Handler) scenarioCollection(w http.ResponseWriter, r *http.Request, key, endpointID string) {
+	switch r.Method {
+	case http.MethodGet:
+		scenarios, err := h.repo.ListScenarios(r.Context(), key, endpointID)
+		if err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, scenarios)
+	case http.MethodPost:
+		var in scenarioRequest
+		if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil {
+			http.Error(w, "invalid JSON", 400)
+			return
+		}
+		if err := validateScenario(&in); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		s, err := h.repo.CreateScenario(r.Context(), key, endpointID, scenarioFromRequest(in))
+		if err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusCreated, s)
+	default:
+		http.Error(w, "method not allowed", 405)
+	}
+}
+
+func (h *Handler) scenarioItem(w http.ResponseWriter, r *http.Request, key, endpointID, scenarioID string) {
+	if r.Method == http.MethodDelete {
+		if err := h.repo.DeleteScenario(r.Context(), key, endpointID, scenarioID); err != nil {
+			writeRepositoryError(w, err)
+			return
+		}
+		w.WriteHeader(http.StatusNoContent)
+		return
+	}
+	if r.Method != http.MethodPut {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var in scenarioRequest
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10)).Decode(&in) != nil {
+		http.Error(w, "invalid JSON", 400)
+		return
+	}
+	if err := validateScenario(&in); err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	s, err := h.repo.UpdateScenario(r.Context(), key, endpointID, scenarioID, scenarioFromRequest(in))
+	if err != nil {
+		writeRepositoryError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, s)
 }
 
 func (h *Handler) endpointCollection(w http.ResponseWriter, r *http.Request, key string) {
@@ -254,19 +333,30 @@ func (h *Handler) runtime(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	if endpoint.DelayMS > 0 {
-		time.Sleep(time.Duration(endpoint.DelayMS) * time.Millisecond)
+	response := Scenario{StatusCode: endpoint.StatusCode, Body: endpoint.Body, ContentType: endpoint.ContentType, DelayMS: endpoint.DelayMS, Headers: endpoint.Headers}
+	selector := r.Header.Get("X-Mocklet-Scenario")
+	if selector == "" {
+		selector = r.URL.Query().Get("__scenario")
 	}
-	for k, v := range endpoint.Headers {
+	for _, scenario := range endpoint.Scenarios {
+		if (selector != "" && scenario.Name == selector) || (selector == "" && scenario.IsDefault) {
+			response = scenario
+			break
+		}
+	}
+	if response.DelayMS > 0 {
+		time.Sleep(time.Duration(response.DelayMS) * time.Millisecond)
+	}
+	for k, v := range response.Headers {
 		w.Header().Set(k, v)
 	}
 	w.Header().Set("X-Content-Type-Options", "nosniff")
 	w.Header().Set("Content-Security-Policy", "sandbox")
-	if endpoint.ContentType != "" {
-		w.Header().Set("Content-Type", endpoint.ContentType)
+	if response.ContentType != "" {
+		w.Header().Set("Content-Type", response.ContentType)
 	}
-	w.WriteHeader(endpoint.StatusCode)
-	w.Write([]byte(endpoint.Body))
+	w.WriteHeader(response.StatusCode)
+	w.Write([]byte(response.Body))
 }
 
 func clientIP(r *http.Request) string {
@@ -376,6 +466,23 @@ func allowedContentType(value string) bool {
 
 func endpointFromRequest(in createRequest) Endpoint {
 	return Endpoint{Method: in.Method, Path: in.Path, StatusCode: in.StatusCode, Body: in.Body, ContentType: in.ContentType, DelayMS: in.DelayMS, Headers: in.Headers}
+}
+
+func scenarioFromRequest(in scenarioRequest) Scenario {
+	return Scenario{Name: in.Name, IsDefault: in.IsDefault, StatusCode: in.StatusCode, Body: in.Body, ContentType: in.ContentType, DelayMS: in.DelayMS, Headers: in.Headers}
+}
+
+func validateScenario(in *scenarioRequest) error {
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" || strings.ContainsAny(in.Name, "/\r\n") {
+		return &clientError{"scenario name must be a non-empty path-safe value"}
+	}
+	endpoint := &createRequest{Method: http.MethodGet, Path: "/scenario", StatusCode: in.StatusCode, Body: in.Body, ContentType: in.ContentType, DelayMS: in.DelayMS, Headers: in.Headers}
+	if err := validateEndpoint(endpoint); err != nil {
+		return err
+	}
+	in.StatusCode, in.ContentType, in.DelayMS = endpoint.StatusCode, endpoint.ContentType, endpoint.DelayMS
+	return nil
 }
 func validHeader(name, value string) bool {
 	if strings.TrimSpace(name) == "" || strings.ContainsAny(name, "\r\n") || strings.ContainsAny(value, "\r\n") {

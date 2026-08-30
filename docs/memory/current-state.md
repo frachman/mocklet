@@ -1,6 +1,6 @@
 # Current state
 
-- Milestone: M2 MVP implementation complete; production-readiness gate next.
+- Milestone: M3 scenarios implementation in progress; M2 hardening is complete and production remains live.
 - Repository: empty workspace bootstrapped locally; remote verification/push pending authorization and connectivity.
 - Working: Go repository/API source, SQL schema, public-repo safety files, documentation harness, token hashing and endpoint validation tests.
 - Verified: PostgreSQL migration, create → public runtime → private management smoke test (201/200/401), Go tests, and Next.js production build.
@@ -12,5 +12,7 @@
 - Controlled M2 testing: five routes succeeded; sixth route and duplicate route returned 409; update returned runtime 299; delete returned 204 and runtime 404; rate burst produced 429; expired resource returned 404.
 - Homelab staging: source deployed to an isolated private staging host; loopback-only ports, host health/readiness, create/runtime/management, browser tunnel QA, and synthetic PostgreSQL backup/restore rehearsal passed.
 - Production is live on the approved public domain; encrypted backup delivery, checksum, scheduled freshness check, ingress smoke, and existing-site regression passed. Isolated decrypt/restore using the private recovery key remains pending.
+- M2 hardening: runtime path templates, buffered usage counters, response content-type allowlist, browser MIME-sniffing protection, and landing telemetry sentinel are implemented and unit-tested.
+- M3: named endpoint scenarios and deterministic header/query selection are implemented; database migration and authenticated management CRUD are ready for integration verification.
 - Known limitation: process-local rate limiting is not suitable for horizontal scaling without a shared limiter.
 - Environment note: sibling `../mikrolyt-ecosystem` exists but is empty and outside this session's writable root, so it was not initialized or modified.

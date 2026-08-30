@@ -54,7 +54,7 @@ func TestUsageBuffer(t *testing.T) {
 
 func TestPageViewRequiresSentinel(t *testing.T) {
 	h := &Handler{repo: &Repository{usage: newUsageBuffer()}}
-	for _, body := range []string{"", `{"source":"other"}`, `{"source":"landing"} {}`} {
+	for _, body := range []string{"", `{"source":"other"}`, `{"source":"landing","extra":true}`, `{"source":"landing"} {}`} {
 		recorder := httptest.NewRecorder()
 		h.pageView(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/page-view", strings.NewReader(body)))
 		if recorder.Code != http.StatusBadRequest {
@@ -65,6 +65,16 @@ func TestPageViewRequiresSentinel(t *testing.T) {
 	h.pageView(recorder, httptest.NewRequest(http.MethodPost, "/api/v1/telemetry/page-view", strings.NewReader(`{"source":"landing"}`)))
 	if recorder.Code != http.StatusNoContent {
 		t.Fatalf("valid sentinel returned %d", recorder.Code)
+	}
+}
+
+func TestValidateScenario(t *testing.T) {
+	scenario := &scenarioRequest{Name: "error", StatusCode: 500, ContentType: "application/json"}
+	if err := validateScenario(scenario); err != nil {
+		t.Fatal(err)
+	}
+	if validateScenario(&scenarioRequest{Name: "bad/name", StatusCode: 200}) == nil {
+		t.Fatal("expected unsafe scenario name rejection")
 	}
 }
 

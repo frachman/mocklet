@@ -6,4 +6,6 @@ The service does not execute user code, proxy requests, render response bodies a
 
 Anonymous landing-view telemetry requires the exact JSON sentinel `{"source":"landing"}`. It contains no visitor identifier, cookie, or payload data. Usage counters are buffered in memory and flushed periodically, so the public runtime path does not wait for a database write on every request.
 
+Scenario names are data values only. They select stored deterministic responses and cannot execute code, expressions, templates, or outbound requests. Unknown scenario names fall back to the endpoint default response.
+
 The initial browser API surface allows credential-free CORS (`Access-Control-Allow-Origin: *`); management authorization remains an explicit token header and is not cookie-based.

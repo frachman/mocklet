@@ -29,6 +29,17 @@ type Endpoint struct {
 	StatusCode  int               `json:"status_code"`
 	DelayMS     int               `json:"delay_ms"`
 	Headers     map[string]string `json:"headers,omitempty"`
+	Scenarios   []Scenario        `json:"scenarios,omitempty"`
+}
+type Scenario struct {
+	ID          string            `json:"id,omitempty"`
+	Name        string            `json:"name"`
+	IsDefault   bool              `json:"is_default"`
+	StatusCode  int               `json:"status_code"`
+	Body        string            `json:"body"`
+	ContentType string            `json:"content_type"`
+	DelayMS     int               `json:"delay_ms"`
+	Headers     map[string]string `json:"headers,omitempty"`
 }
 
 type Repository struct {
@@ -157,6 +168,10 @@ func (r *Repository) FindByPublicKey(ctx context.Context, key string) (Mock, err
 			return Mock{}, err
 		}
 		_ = json.Unmarshal(headers, &e.Headers)
+		e.Scenarios, err = r.listScenarios(ctx, e.ID)
+		if err != nil {
+			return Mock{}, err
+		}
 		m.Endpoints = append(m.Endpoints, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -173,11 +188,111 @@ func (r *Repository) AddEndpoint(ctx context.Context, mockID string, e Endpoint)
 
 func (r *Repository) UpdateEndpoint(ctx context.Context, mockID, endpointID string, e Endpoint) (Endpoint, error) {
 	headers, _ := json.Marshal(e.Headers)
-	err := r.db.QueryRowContext(ctx, `UPDATE mock_endpoints SET method=$1,path=$2,status_code=$3,headers=$4,body=$5,content_type=$6,delay_ms=$7,updated_at=now() WHERE id=$8 AND mock_api_id=$9 RETURNING id`, e.Method, e.Path, e.StatusCode, headers, e.Body, e.ContentType, e.DelayMS, endpointID, mockID).Scan(&e.ID)
-	if errors.Is(err, sql.ErrNoRows) {
-		return Endpoint{}, ErrNotFound
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Endpoint{}, err
 	}
-	return e, err
+	defer tx.Rollback()
+	if err = tx.QueryRowContext(ctx, `UPDATE mock_endpoints SET method=$1,path=$2,status_code=$3,headers=$4,body=$5,content_type=$6,delay_ms=$7,updated_at=now() WHERE id=$8 AND mock_api_id=$9 RETURNING id`, e.Method, e.Path, e.StatusCode, headers, e.Body, e.ContentType, e.DelayMS, endpointID, mockID).Scan(&e.ID); errors.Is(err, sql.ErrNoRows) {
+		return Endpoint{}, ErrNotFound
+	} else if err != nil {
+		return Endpoint{}, err
+	}
+	_, err = tx.ExecContext(ctx, `UPDATE mock_scenarios SET status_code=$1,headers=$2,body=$3,content_type=$4,delay_ms=$5,updated_at=now() WHERE endpoint_id=$6 AND is_default`, e.StatusCode, headers, e.Body, e.ContentType, e.DelayMS, endpointID)
+	if err != nil {
+		return Endpoint{}, err
+	}
+	return e, tx.Commit()
+}
+
+func (r *Repository) listScenarios(ctx context.Context, endpointID string) ([]Scenario, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT id,name,is_default,status_code,headers,body,content_type,delay_ms FROM mock_scenarios WHERE endpoint_id=$1 ORDER BY created_at`, endpointID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var scenarios []Scenario
+	for rows.Next() {
+		var s Scenario
+		var headers []byte
+		if err := rows.Scan(&s.ID, &s.Name, &s.IsDefault, &s.StatusCode, &headers, &s.Body, &s.ContentType, &s.DelayMS); err != nil {
+			return nil, err
+		}
+		_ = json.Unmarshal(headers, &s.Headers)
+		scenarios = append(scenarios, s)
+	}
+	return scenarios, rows.Err()
+}
+
+func (r *Repository) ListScenarios(ctx context.Context, mockID, endpointID string) ([]Scenario, error) {
+	var exists bool
+	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM mock_endpoints WHERE id=$1 AND mock_api_id=$2)`, endpointID, mockID).Scan(&exists); err != nil {
+		return nil, err
+	}
+	if !exists {
+		return nil, ErrNotFound
+	}
+	return r.listScenarios(ctx, endpointID)
+}
+
+func (r *Repository) CreateScenario(ctx context.Context, mockID, endpointID string, s Scenario) (Scenario, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Scenario{}, err
+	}
+	defer tx.Rollback()
+	var exists bool
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM mock_endpoints WHERE id=$1 AND mock_api_id=$2)`, endpointID, mockID).Scan(&exists); err != nil || !exists {
+		if err != nil {
+			return Scenario{}, err
+		}
+		return Scenario{}, ErrNotFound
+	}
+	headers, _ := json.Marshal(s.Headers)
+	if s.IsDefault {
+		if _, err = tx.ExecContext(ctx, `UPDATE mock_scenarios SET is_default=false,updated_at=now() WHERE endpoint_id=$1`, endpointID); err != nil {
+			return Scenario{}, err
+		}
+	}
+	if err = tx.QueryRowContext(ctx, `INSERT INTO mock_scenarios (endpoint_id,name,is_default,status_code,headers,body,content_type,delay_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, endpointID, s.Name, s.IsDefault, s.StatusCode, headers, s.Body, s.ContentType, s.DelayMS).Scan(&s.ID); err != nil {
+		return Scenario{}, err
+	}
+	return s, tx.Commit()
+}
+
+func (r *Repository) UpdateScenario(ctx context.Context, mockID, endpointID, scenarioID string, s Scenario) (Scenario, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Scenario{}, err
+	}
+	defer tx.Rollback()
+	headers, _ := json.Marshal(s.Headers)
+	if s.IsDefault {
+		if _, err = tx.ExecContext(ctx, `UPDATE mock_scenarios SET is_default=false,updated_at=now() WHERE endpoint_id=$1`, endpointID); err != nil {
+			return Scenario{}, err
+		}
+	}
+	if err = tx.QueryRowContext(ctx, `UPDATE mock_scenarios SET name=$1,is_default=$2,status_code=$3,headers=$4,body=$5,content_type=$6,delay_ms=$7,updated_at=now() WHERE id=$8 AND endpoint_id=$9 AND endpoint_id IN (SELECT id FROM mock_endpoints WHERE mock_api_id=$10) RETURNING id`, s.Name, s.IsDefault, s.StatusCode, headers, s.Body, s.ContentType, s.DelayMS, scenarioID, endpointID, mockID).Scan(&s.ID); errors.Is(err, sql.ErrNoRows) {
+		return Scenario{}, ErrNotFound
+	} else if err != nil {
+		return Scenario{}, err
+	}
+	return s, tx.Commit()
+}
+
+func (r *Repository) DeleteScenario(ctx context.Context, mockID, endpointID, scenarioID string) error {
+	result, err := r.db.ExecContext(ctx, `DELETE FROM mock_scenarios WHERE id=$1 AND endpoint_id=$2 AND endpoint_id IN (SELECT id FROM mock_endpoints WHERE mock_api_id=$3)`, scenarioID, endpointID, mockID)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrNotFound
+	}
+	return nil
 }
 
 func (r *Repository) DeleteEndpoint(ctx context.Context, mockID, endpointID string) error {
