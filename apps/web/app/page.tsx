@@ -35,7 +35,9 @@ export default function Home() {
     const value = await response.json(); setMessage(`Added ${value.method} ${value.path}`); form.reset();
   }
 
-  return <main>
+  const structuredData = { '@context': 'https://schema.org', '@type': 'WebApplication', name: 'Mocklet', url: 'https://mocklet.mikrolyt.com', applicationCategory: 'DeveloperApplication', operatingSystem: 'Any', description: 'Create disposable mock API endpoints before the backend is ready.' };
+
+  return <main><script type="application/ld+json" dangerouslySetInnerHTML={{ __html: JSON.stringify(structuredData) }} />
     <header className="site-header"><a className="brand" href="#top" aria-label="Mocklet home"><span className="brand-mark">M</span> Mocklet</a><nav aria-label="Main navigation"><a href="#how-it-works">How it works</a><a href="#case-study">Case study</a><a href="#playground">Try it</a></nav></header>
 
     <section className="hero" id="top"><div className="eyebrow"><span className="status-dot" /> API contract, made executable</div><h1>Build the frontend <em>before</em> the backend is ready.</h1><p className="hero-copy">Create a disposable mock API, point your app at a stable response, and keep shipping while the real service is still being built.</p><div className="hero-actions"><a className="button primary" href="#playground">Create a mock API <span>→</span></a><a className="text-link" href="#case-study">See a realistic workflow <span>↓</span></a></div><div className="hero-proof"><span>✓ No account required</span><span>✓ Expires automatically</span><span>✓ Shareable HTTP endpoints</span></div></section>
