@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sync"
 	"time"
 
 	_ "github.com/jackc/pgx/v5/stdlib"
@@ -30,7 +31,10 @@ type Endpoint struct {
 	Headers     map[string]string `json:"headers,omitempty"`
 }
 
-type Repository struct{ db *sql.DB }
+type Repository struct {
+	db    *sql.DB
+	usage *usageBuffer
+}
 
 func NewPostgresRepository(ctx context.Context, url string) (*Repository, error) {
 	db, err := sql.Open("pgx", url)
@@ -41,24 +45,70 @@ func NewPostgresRepository(ctx context.Context, url string) (*Repository, error)
 		db.Close()
 		return nil, err
 	}
-	return &Repository{db: db}, nil
+	return &Repository{db: db, usage: newUsageBuffer()}, nil
 }
 func (r *Repository) Close() error                    { return r.db.Close() }
 func (r *Repository) Ready(ctx context.Context) error { return r.db.PingContext(ctx) }
 
 func (r *Repository) IncrementUsage(ctx context.Context, event string) error {
-	column := map[string]string{
+	if r.usage == nil {
+		r.usage = newUsageBuffer()
+	}
+	return r.usage.Add(event)
+}
+
+func (r *Repository) FlushUsage(ctx context.Context) error {
+	if r.usage == nil {
+		return nil
+	}
+	counts := r.usage.Take()
+	for event, count := range counts {
+		column := usageColumn(event)
+		if column == "" {
+			continue
+		}
+		if _, err := r.db.ExecContext(ctx, `INSERT INTO usage_daily (event_date, `+column+`) VALUES (CURRENT_DATE, $1) ON CONFLICT (event_date) DO UPDATE SET `+column+` = usage_daily.`+column+` + $1`, count); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func usageColumn(event string) string {
+	return map[string]string{
 		"landing_views":         "landing_views",
 		"mocks_created":         "mocks_created",
 		"runtime_requests":      "runtime_requests",
 		"management_requests":   "management_requests",
 		"rate_limited_requests": "rate_limited_requests",
 	}[event]
-	if column == "" {
+}
+
+type usageBuffer struct {
+	mu     sync.Mutex
+	counts map[string]int
+}
+
+func newUsageBuffer() *usageBuffer {
+	return &usageBuffer{counts: make(map[string]int)}
+}
+
+func (b *usageBuffer) Add(event string) error {
+	if usageColumn(event) == "" {
 		return errors.New("unknown usage event")
 	}
-	_, err := r.db.ExecContext(ctx, `INSERT INTO usage_daily (event_date, `+column+`) VALUES (CURRENT_DATE, 1) ON CONFLICT (event_date) DO UPDATE SET `+column+` = usage_daily.`+column+` + 1`)
-	return err
+	b.mu.Lock()
+	b.counts[event]++
+	b.mu.Unlock()
+	return nil
+}
+
+func (b *usageBuffer) Take() map[string]int {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	counts := b.counts
+	b.counts = make(map[string]int)
+	return counts
 }
 
 func (r *Repository) Create(ctx context.Context, name, tokenHash string, expiresAt time.Time, e Endpoint) (Mock, error) {
@@ -143,12 +193,6 @@ func (r *Repository) DeleteEndpoint(ctx context.Context, mockID, endpointID stri
 		return ErrNotFound
 	}
 	return nil
-}
-
-func (r *Repository) CountEndpoints(ctx context.Context, mockID string) (int, error) {
-	var count int
-	err := r.db.QueryRowContext(ctx, `SELECT count(*) FROM mock_endpoints WHERE mock_api_id=$1`, mockID).Scan(&count)
-	return count, err
 }
 
 func (r *Repository) DeleteExpired(ctx context.Context) error {

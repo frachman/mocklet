@@ -63,8 +63,21 @@ func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) pageView(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost || r.ContentLength > 0 {
+	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	var in struct {
+		Source string `json:"source"`
+	}
+	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<10))
+	if decoder.Decode(&in) != nil || in.Source != "landing" {
+		http.Error(w, "invalid telemetry", http.StatusBadRequest)
+		return
+	}
+	var extra any
+	if decoder.Decode(&extra) == nil {
+		http.Error(w, "invalid telemetry", http.StatusBadRequest)
 		return
 	}
 	_ = h.repo.IncrementUsage(r.Context(), "landing_views")
@@ -100,10 +113,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	token, _ := randomToken()
-	key, _ := randomToken()
 	expires := time.Now().Add(24 * time.Hour)
-	// The repository generates its own public key; key is only used to keep token generation uniform.
-	_ = key
 	e := Endpoint{Method: strings.ToUpper(in.Method), Path: in.Path, StatusCode: in.StatusCode, Body: in.Body, ContentType: in.ContentType, DelayMS: in.DelayMS, Headers: in.Headers}
 	m, err := h.repo.Create(r.Context(), in.Name, hashToken(token), expires, e)
 	if err != nil {
@@ -235,7 +245,7 @@ func (h *Handler) runtime(w http.ResponseWriter, r *http.Request) {
 	}
 	var endpoint *Endpoint
 	for i := range m.Endpoints {
-		if m.Endpoints[i].Method == r.Method && m.Endpoints[i].Path == "/"+parts[1] {
+		if m.Endpoints[i].Method == r.Method && matchPathPattern(m.Endpoints[i].Path, "/"+parts[1]) {
 			endpoint = &m.Endpoints[i]
 			break
 		}
@@ -250,6 +260,8 @@ func (h *Handler) runtime(w http.ResponseWriter, r *http.Request) {
 	for k, v := range endpoint.Headers {
 		w.Header().Set(k, v)
 	}
+	w.Header().Set("X-Content-Type-Options", "nosniff")
+	w.Header().Set("Content-Security-Policy", "sandbox")
 	if endpoint.ContentType != "" {
 		w.Header().Set("Content-Type", endpoint.ContentType)
 	}
@@ -312,6 +324,9 @@ func validateEndpoint(in *createRequest) error {
 	if in.ContentType == "" {
 		in.ContentType = "application/json"
 	}
+	if !allowedContentType(in.ContentType) {
+		return &clientError{"content_type is not allowed"}
+	}
 	if len(in.Body) > 1<<20 {
 		return &clientError{"body is limited to 1 MiB"}
 	}
@@ -321,6 +336,42 @@ func validateEndpoint(in *createRequest) error {
 		}
 	}
 	return nil
+}
+
+func matchPathPattern(pattern, path string) bool {
+	patternParts := splitPath(pattern)
+	pathParts := splitPath(path)
+	if len(patternParts) != len(pathParts) {
+		return false
+	}
+	for i := range patternParts {
+		segment := patternParts[i]
+		if strings.HasPrefix(segment, "{") && strings.HasSuffix(segment, "}") {
+			continue
+		}
+		if segment != pathParts[i] {
+			return false
+		}
+	}
+	return true
+}
+
+func splitPath(path string) []string {
+	trimmed := strings.Trim(path, "/")
+	if trimmed == "" {
+		return nil
+	}
+	return strings.Split(trimmed, "/")
+}
+
+func allowedContentType(value string) bool {
+	base := strings.ToLower(strings.TrimSpace(strings.SplitN(value, ";", 2)[0]))
+	switch base {
+	case "application/json", "text/plain", "application/xml", "application/x-www-form-urlencoded", "application/octet-stream":
+		return true
+	default:
+		return false
+	}
 }
 
 func endpointFromRequest(in createRequest) Endpoint {

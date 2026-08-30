@@ -22,6 +22,15 @@ func main() {
 	}
 	defer repo.Close()
 	go func() {
+		ticker := time.NewTicker(60 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if err := repo.FlushUsage(context.Background()); err != nil {
+				log.Printf("usage flush failed: %v", err)
+			}
+		}
+	}()
+	go func() {
 		ticker := time.NewTicker(15 * time.Minute)
 		defer ticker.Stop()
 		for range ticker.C {
