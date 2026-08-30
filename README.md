@@ -21,6 +21,8 @@ Usage metrics are privacy-preserving aggregates. Mocklet does not store webhook 
 
 See the [usage reporting guide](docs/operations/usage-report.md) for metric definitions and the reporting workflow.
 
+OpenAPI 3.x contracts can also be previewed and imported through the [bounded OpenAPI workflow](docs/operations/openapi-import.md). Review generated routes before activation; unsupported features are called out explicitly.
+
 ## Quick start
 
 Run the API locally:

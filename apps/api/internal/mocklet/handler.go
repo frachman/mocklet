@@ -6,6 +6,8 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"regexp"
@@ -30,7 +32,9 @@ func NewHandler(repo *Repository) http.Handler {
 	mux.HandleFunc("/healthz", h.health)
 	mux.HandleFunc("/readyz", h.ready)
 	mux.HandleFunc("/api/v1/mocks", h.create)
+	mux.HandleFunc("/api/v1/mocks/import", h.importMocks)
 	mux.HandleFunc("/api/v1/mocks/", h.manage)
+	mux.HandleFunc("/api/v1/import/openapi/preview", h.openapiPreview)
 	mux.HandleFunc("/api/v1/telemetry/page-view", h.pageView)
 	mux.HandleFunc("/m/", h.runtime)
 	return cors(mux)
@@ -96,6 +100,77 @@ type createRequest struct {
 	Headers     map[string]string `json:"headers"`
 }
 
+type importRequest struct {
+	Name      string             `json:"name"`
+	Endpoints []importedEndpoint `json:"endpoints"`
+}
+
+type importedEndpoint struct {
+	createRequest
+	Scenarios []scenarioRequest `json:"scenarios"`
+}
+
+func (h *Handler) openapiPreview(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	data, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 256<<10))
+	if err != nil {
+		http.Error(w, "document is limited to 256 KiB", 400)
+		return
+	}
+	preview, err := previewOpenAPI(data)
+	if err != nil {
+		http.Error(w, err.Error(), 400)
+		return
+	}
+	writeJSON(w, http.StatusOK, preview)
+}
+
+func (h *Handler) importMocks(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", 405)
+		return
+	}
+	var in importRequest
+	if json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&in) != nil {
+		http.Error(w, "invalid JSON", 400)
+		return
+	}
+	if in.Name == "" {
+		in.Name = "Imported mock"
+	}
+	if len(in.Endpoints) == 0 || len(in.Endpoints) > maxEndpoints {
+		http.Error(w, fmt.Sprintf("endpoints must contain 1 to %d items", maxEndpoints), 400)
+		return
+	}
+	endpoints := make([]Endpoint, 0, len(in.Endpoints))
+	for _, item := range in.Endpoints {
+		if err := validateEndpoint(&item.createRequest); err != nil {
+			http.Error(w, err.Error(), 400)
+			return
+		}
+		e := endpointFromRequest(item.createRequest)
+		for _, scenario := range item.Scenarios {
+			if err := validateScenario(&scenario); err != nil {
+				http.Error(w, err.Error(), 400)
+				return
+			}
+			e.Scenarios = append(e.Scenarios, scenarioFromRequest(scenario))
+		}
+		endpoints = append(endpoints, e)
+	}
+	token, _ := randomToken()
+	m, err := h.repo.CreateImported(r.Context(), in.Name, hashToken(token), time.Now().Add(24*time.Hour), endpoints)
+	if err != nil {
+		writeRepositoryError(w, err)
+		return
+	}
+	_ = h.repo.IncrementUsage(r.Context(), "mocks_created")
+	writeJSON(w, http.StatusCreated, map[string]any{"public_key": m.PublicKey, "management_token": token, "name": m.Name, "expires_at": m.ExpiresAt, "endpoints": endpoints})
+}
+
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", 405)
@@ -122,7 +197,7 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	_ = h.repo.IncrementUsage(r.Context(), "mocks_created")
-	writeJSON(w, 201, map[string]any{"public_key": m.PublicKey, "management_token": token, "name": m.Name, "expires_at": m.ExpiresAt, "endpoint": e})
+	writeJSON(w, 201, map[string]any{"public_key": m.PublicKey, "management_token": token, "name": m.Name, "expires_at": m.ExpiresAt, "endpoint": m.Endpoints[0]})
 }
 
 func (h *Handler) manage(w http.ResponseWriter, r *http.Request) {

@@ -142,6 +142,43 @@ func (r *Repository) Create(ctx context.Context, name, tokenHash string, expires
 	return m, tx.Commit()
 }
 
+func (r *Repository) CreateImported(ctx context.Context, name, tokenHash string, expiresAt time.Time, endpoints []Endpoint) (Mock, error) {
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return Mock{}, err
+	}
+	defer tx.Rollback()
+	var m Mock
+	if err = tx.QueryRowContext(ctx, `INSERT INTO mock_apis (public_key, management_token_hash, name, expires_at) VALUES (encode(gen_random_bytes(12),'hex'), $1, $2, $3) RETURNING id, public_key, name, expires_at`, tokenHash, name, expiresAt).Scan(&m.ID, &m.PublicKey, &m.Name, &m.ExpiresAt); err != nil {
+		return Mock{}, err
+	}
+	for _, e := range endpoints {
+		var endpointID string
+		if err = tx.QueryRowContext(ctx, `INSERT INTO mock_endpoints (mock_api_id, method, path, status_code, headers, body, content_type, delay_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, m.ID, e.Method, e.Path, e.StatusCode, mustJSON(e.Headers), e.Body, e.ContentType, e.DelayMS).Scan(&endpointID); err != nil {
+			return Mock{}, err
+		}
+		e.ID = endpointID
+		for _, scenario := range e.Scenarios {
+			if scenario.IsDefault {
+				if _, err = tx.ExecContext(ctx, `UPDATE mock_scenarios SET is_default=false WHERE endpoint_id=$1`, endpointID); err != nil {
+					return Mock{}, err
+				}
+			}
+			if err = tx.QueryRowContext(ctx, `INSERT INTO mock_scenarios (endpoint_id,name,is_default,status_code,headers,body,content_type,delay_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8) RETURNING id`, endpointID, scenario.Name, scenario.IsDefault, scenario.StatusCode, mustJSON(scenario.Headers), scenario.Body, scenario.ContentType, scenario.DelayMS).Scan(&scenario.ID); err != nil {
+				return Mock{}, err
+			}
+		}
+		e.Scenarios = nil
+		m.Endpoints = append(m.Endpoints, e)
+	}
+	return m, tx.Commit()
+}
+
+func mustJSON(value map[string]string) []byte {
+	data, _ := json.Marshal(value)
+	return data
+}
+
 func insertEndpoint(ctx context.Context, tx *sql.Tx, mockID string, e Endpoint) error {
 	headers, _ := json.Marshal(e.Headers)
 	_, err := tx.ExecContext(ctx, `INSERT INTO mock_endpoints (mock_api_id, method, path, status_code, headers, body, content_type, delay_ms) VALUES ($1,$2,$3,$4,$5,$6,$7,$8)`, mockID, e.Method, e.Path, e.StatusCode, headers, e.Body, e.ContentType, e.DelayMS)
@@ -226,7 +263,7 @@ func (r *Repository) listScenarios(ctx context.Context, endpointID string) ([]Sc
 
 func (r *Repository) ListScenarios(ctx context.Context, mockID, endpointID string) ([]Scenario, error) {
 	var exists bool
-	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM mock_endpoints WHERE id=$1 AND mock_api_id=$2)`, endpointID, mockID).Scan(&exists); err != nil {
+	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM mock_endpoints e JOIN mock_apis m ON m.id=e.mock_api_id WHERE e.id=$1 AND m.public_key=$2)`, endpointID, mockID).Scan(&exists); err != nil {
 		return nil, err
 	}
 	if !exists {
@@ -242,7 +279,7 @@ func (r *Repository) CreateScenario(ctx context.Context, mockID, endpointID stri
 	}
 	defer tx.Rollback()
 	var exists bool
-	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM mock_endpoints WHERE id=$1 AND mock_api_id=$2)`, endpointID, mockID).Scan(&exists); err != nil || !exists {
+	if err = tx.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM mock_endpoints e JOIN mock_apis m ON m.id=e.mock_api_id WHERE e.id=$1 AND m.public_key=$2)`, endpointID, mockID).Scan(&exists); err != nil || !exists {
 		if err != nil {
 			return Scenario{}, err
 		}
@@ -272,7 +309,7 @@ func (r *Repository) UpdateScenario(ctx context.Context, mockID, endpointID, sce
 			return Scenario{}, err
 		}
 	}
-	if err = tx.QueryRowContext(ctx, `UPDATE mock_scenarios SET name=$1,is_default=$2,status_code=$3,headers=$4,body=$5,content_type=$6,delay_ms=$7,updated_at=now() WHERE id=$8 AND endpoint_id=$9 AND endpoint_id IN (SELECT id FROM mock_endpoints WHERE mock_api_id=$10) RETURNING id`, s.Name, s.IsDefault, s.StatusCode, headers, s.Body, s.ContentType, s.DelayMS, scenarioID, endpointID, mockID).Scan(&s.ID); errors.Is(err, sql.ErrNoRows) {
+	if err = tx.QueryRowContext(ctx, `UPDATE mock_scenarios SET name=$1,is_default=$2,status_code=$3,headers=$4,body=$5,content_type=$6,delay_ms=$7,updated_at=now() WHERE id=$8 AND endpoint_id=$9 AND endpoint_id IN (SELECT e.id FROM mock_endpoints e JOIN mock_apis m ON m.id=e.mock_api_id WHERE m.public_key=$10) RETURNING id`, s.Name, s.IsDefault, s.StatusCode, headers, s.Body, s.ContentType, s.DelayMS, scenarioID, endpointID, mockID).Scan(&s.ID); errors.Is(err, sql.ErrNoRows) {
 		return Scenario{}, ErrNotFound
 	} else if err != nil {
 		return Scenario{}, err
@@ -281,7 +318,7 @@ func (r *Repository) UpdateScenario(ctx context.Context, mockID, endpointID, sce
 }
 
 func (r *Repository) DeleteScenario(ctx context.Context, mockID, endpointID, scenarioID string) error {
-	result, err := r.db.ExecContext(ctx, `DELETE FROM mock_scenarios WHERE id=$1 AND endpoint_id=$2 AND endpoint_id IN (SELECT id FROM mock_endpoints WHERE mock_api_id=$3)`, scenarioID, endpointID, mockID)
+	result, err := r.db.ExecContext(ctx, `DELETE FROM mock_scenarios WHERE id=$1 AND endpoint_id=$2 AND endpoint_id IN (SELECT e.id FROM mock_endpoints e JOIN mock_apis m ON m.id=e.mock_api_id WHERE m.public_key=$3)`, scenarioID, endpointID, mockID)
 	if err != nil {
 		return err
 	}
