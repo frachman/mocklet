@@ -31,6 +31,7 @@ func NewHandler(repo *Repository) http.Handler {
 	mux.HandleFunc("/readyz", h.ready)
 	mux.HandleFunc("/api/v1/mocks", h.create)
 	mux.HandleFunc("/api/v1/mocks/", h.manage)
+	mux.HandleFunc("/api/v1/telemetry/page-view", h.pageView)
 	mux.HandleFunc("/m/", h.runtime)
 	return cors(mux)
 }
@@ -54,8 +55,20 @@ func (h *Handler) health(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (h *Handler) ready(w http.ResponseWriter, r *http.Request) {
-	if err := h.repo.Ready(r.Context()); err != nil { http.Error(w, "not ready", http.StatusServiceUnavailable); return }
-	writeJSON(w, http.StatusOK, map[string]string{"status":"ready"})
+	if err := h.repo.Ready(r.Context()); err != nil {
+		http.Error(w, "not ready", http.StatusServiceUnavailable)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ready"})
+}
+
+func (h *Handler) pageView(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost || r.ContentLength > 0 {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+	_ = h.repo.IncrementUsage(r.Context(), "landing_views")
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type createRequest struct {
@@ -97,10 +110,12 @@ func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "could not create mock", 500)
 		return
 	}
+	_ = h.repo.IncrementUsage(r.Context(), "mocks_created")
 	writeJSON(w, 201, map[string]any{"public_key": m.PublicKey, "management_token": token, "name": m.Name, "expires_at": m.ExpiresAt, "endpoint": e})
 }
 
 func (h *Handler) manage(w http.ResponseWriter, r *http.Request) {
+	_ = h.repo.IncrementUsage(r.Context(), "management_requests")
 	parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
 	if len(parts) < 4 || len(parts) > 6 || parts[0] != "api" || parts[1] != "v1" || parts[2] != "mocks" {
 		http.NotFound(w, r)
@@ -202,7 +217,9 @@ func (h *Handler) endpointItem(w http.ResponseWriter, r *http.Request, key, endp
 }
 
 func (h *Handler) runtime(w http.ResponseWriter, r *http.Request) {
+	_ = h.repo.IncrementUsage(r.Context(), "runtime_requests")
 	if !h.limiter.Allow(clientIP(r)) {
+		_ = h.repo.IncrementUsage(r.Context(), "rate_limited_requests")
 		http.Error(w, "rate limit exceeded", http.StatusTooManyRequests)
 		return
 	}

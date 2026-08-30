@@ -1,6 +1,6 @@
 'use client';
 
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 
 const apiOrigin = process.env.NEXT_PUBLIC_API_ORIGIN ?? 'http://localhost:8080';
 type Result = { key: string; url: string; token: string; expires: string };
@@ -13,6 +13,10 @@ export default function Home() {
   const [result, setResult] = useState<Result | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    void fetch(`${apiOrigin}/api/v1/telemetry/page-view`, { method: 'POST', keepalive: true }).catch(() => undefined);
+  }, []);
 
   async function create(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setMessage('');

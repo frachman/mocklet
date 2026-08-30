@@ -43,8 +43,23 @@ func NewPostgresRepository(ctx context.Context, url string) (*Repository, error)
 	}
 	return &Repository{db: db}, nil
 }
-func (r *Repository) Close() error { return r.db.Close() }
+func (r *Repository) Close() error                    { return r.db.Close() }
 func (r *Repository) Ready(ctx context.Context) error { return r.db.PingContext(ctx) }
+
+func (r *Repository) IncrementUsage(ctx context.Context, event string) error {
+	column := map[string]string{
+		"landing_views":         "landing_views",
+		"mocks_created":         "mocks_created",
+		"runtime_requests":      "runtime_requests",
+		"management_requests":   "management_requests",
+		"rate_limited_requests": "rate_limited_requests",
+	}[event]
+	if column == "" {
+		return errors.New("unknown usage event")
+	}
+	_, err := r.db.ExecContext(ctx, `INSERT INTO usage_daily (event_date, `+column+`) VALUES (CURRENT_DATE, 1) ON CONFLICT (event_date) DO UPDATE SET `+column+` = usage_daily.`+column+` + 1`)
+	return err
+}
 
 func (r *Repository) Create(ctx context.Context, name, tokenHash string, expiresAt time.Time, e Endpoint) (Mock, error) {
 	tx, err := r.db.BeginTx(ctx, nil)
