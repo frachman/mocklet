@@ -15,7 +15,7 @@ export default function Home() {
   const [error, setError] = useState('');
 
   useEffect(() => {
-    void fetch(`${apiOrigin}/api/v1/telemetry/page-view`, { method: 'POST', keepalive: true }).catch(() => undefined);
+    void fetch(`${apiOrigin}/api/v1/telemetry/page-view`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ source: 'landing' }), keepalive: true }).catch(() => undefined);
   }, []);
 
   async function create(event: FormEvent<HTMLFormElement>) {
