@@ -1,14 +1,29 @@
 # Mocklet
 
-Build against the API contract before the API is ready.
+## Build against the API contract first.
 
-Mocklet is an anonymous-first, disposable mock API service. The first vertical slice creates one mock API with one configured endpoint, persists it in PostgreSQL, serves it from a public URL, and protects management access with a private token.
+Mocklet is a disposable mock API service for frontend, QA, and integration work. Create a predictable HTTP endpoint in seconds, use it while the real backend is being built, then replace the base URL when the production API is ready.
+
+Try Mocklet live at [mocklet.mikrolyt.com](https://mocklet.mikrolyt.com).
+
+## Why Mocklet
+
+- Unblock frontend work before the backend exists.
+- Test success, error, empty, and delayed-response states.
+- Share a temporary endpoint with teammates and integration tests.
+- Keep the contract visible and easy to replace later.
 
 ## Status
 
-M0/M1 implementation is complete. The current API supports one endpoint per mock. Multi-endpoint management, scenarios, and OpenAPI import are later milestones.
+The M2 MVP is implemented and deployed to the live URL. The service currently supports disposable mocks with up to five configured endpoints, runtime delivery, management-token protection, bounded delays and payloads, aggregate usage metrics, and crawlable SEO documentation.
 
-## Local API
+Usage metrics are privacy-preserving aggregates. Mocklet does not store webhook payloads, headers, viewer tokens, full IP addresses, persistent visitor identifiers, or referrer data. The initial production baseline contains controlled smoke-test traffic; real adoption reporting will follow after the service has had time to receive organic usage.
+
+See the [usage reporting guide](docs/operations/usage-report.md) for metric definitions and the reporting workflow.
+
+## Quick start
+
+Run the API locally:
 
 ```bash
 cp .env.example .env
@@ -31,6 +46,19 @@ Call `http://localhost:8080/m/{public_key}/users`. Keep `management_token` priva
 
 - Anonymous resources expire after 24 hours.
 - Request bodies are limited to 64 KiB for management input; response bodies to 1 MiB.
-- Delay is bounded to 10 seconds.
+- Delays are bounded to 10 seconds.
+- Process-local runtime rate limiting is enabled.
 - No user-provided code, scripting, proxying, accounts, billing, AI, or OpenAPI import exists yet.
 - Every public repository file must be safe to disclose.
+
+## Development
+
+The API is written in Go and the web application uses Next.js. Run the repository checks with:
+
+```bash
+go test ./...
+npm ci --prefix apps/web
+npm run build --prefix apps/web
+```
+
+Contribution and branch-protection expectations are documented in [CONTRIBUTING.md](CONTRIBUTING.md).
