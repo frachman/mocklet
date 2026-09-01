@@ -50,7 +50,7 @@ Call `http://localhost:8080/m/{public_key}/users`. Keep `management_token` priva
 - Request bodies are limited to 64 KiB for management input; response bodies to 1 MiB.
 - Delays are bounded to 10 seconds.
 - Process-local runtime rate limiting is enabled.
-- No user-provided code, scripting, proxying, accounts, billing, AI, or OpenAPI import exists yet.
+- No user-provided code, scripting, proxying, accounts, billing, or AI exists.
 - Every public repository file must be safe to disclose.
 
 ## Development
