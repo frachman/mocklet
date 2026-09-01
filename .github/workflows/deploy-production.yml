@@ -41,7 +41,7 @@ jobs:
       - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           ref: ${{ env.RELEASE_SHA }}
-      - name: Configure SSH
+      - name: Deploy and verify
         shell: bash
         run: |
           set -euo pipefail
@@ -57,9 +57,5 @@ jobs:
           eval "$(ssh-agent -s)"
           export SSH_ASKPASS="$RUNNER_TEMP/ssh/askpass" SSH_ASKPASS_REQUIRE=force DISPLAY=:0
           ssh-add "$RUNNER_TEMP/ssh/deploy_key" < /dev/null
-      - name: Deploy and verify
-        shell: bash
-        run: |
-          set -euo pipefail
           export IMAGE_TAG="sha-$RELEASE_SHA"
           ssh -o BatchMode=yes -o IdentitiesOnly=yes -i "$RUNNER_TEMP/ssh/deploy_key" -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$RUNNER_TEMP/ssh/known_hosts" "$PROD_SSH_USER@$PROD_SSH_HOST" bash -s -- "$IMAGE_TAG" < deploy/remote-deploy-production.sh
