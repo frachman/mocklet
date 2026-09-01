@@ -24,8 +24,20 @@ for attempt in $(seq 1 30); do
     smoke=$(mktemp)
     trap 'rm -f "$smoke"' EXIT
     curl --fail --silent --show-error --max-time 10 -H 'Content-Type: application/json' -X POST https://mocklet.mikrolyt.com/api/v1/mocks -d '{"name":"production-smoke","method":"GET","path":"/health","status_code":200,"body":"{\"ok\":true}","content_type":"application/json"}' > "$smoke"
-    public_key=$(jq -er '.public_key' "$smoke")
-    curl --fail --silent --show-error --max-time 10 "https://mocklet.mikrolyt.com/m/$public_key/health" | jq -e '.ok == true' >/dev/null
+    public_key=$(python3 - "$smoke" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as handle:
+    payload = json.load(handle)
+
+value = payload.get("public_key")
+if not isinstance(value, str) or not value:
+    raise SystemExit("missing smoke response field: public_key")
+print(value)
+PY
+    )
+    curl --fail --silent --show-error --max-time 10 "https://mocklet.mikrolyt.com/m/$public_key/health" | python3 -c 'import json, sys; raise SystemExit(0 if json.load(sys.stdin).get("ok") is True else 1)'
     trap - ERR
     echo "production deployment verified: $image_tag"
     exit 0
