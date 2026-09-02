@@ -16,6 +16,7 @@
   --line: color-mix(in srgb, var(--mkl-green) 14%, #e6ebe6);
   --code-text: color-mix(in srgb, var(--mkl-green) 62%, white);
   --font-family: var(--mkl-font-body);
+  font-family: var(--mkl-font-body);
   color: var(--mkl-ink);
   background: var(--mkl-offwhite);
 }
